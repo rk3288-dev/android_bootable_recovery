@@ -17,6 +17,8 @@
 #ifndef _MINUI_H_
 #define _MINUI_H_
 
+#define RK_FBIOSET_CONFIG_DONE          0x4628
+
 #include <sys/types.h>
 
 #include <stdbool.h>
@@ -51,6 +53,7 @@ void gr_text(int x, int y, const char *s, int bold);
 void gr_texticon(int x, int y, gr_surface icon);
 int gr_measure(const char *s);
 void gr_font_size(int *x, int *y);
+unsigned int gr_get_font_cwidth(void);
 
 void gr_blit(gr_surface source, int sx, int sy, int w, int h, int dx, int dy);
 unsigned int gr_get_width(gr_surface surface);

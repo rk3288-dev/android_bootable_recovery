@@ -51,6 +51,8 @@ int setup_install_mounts();
 // and 0 if the partition was not wiped.
 int erase_persistent_partition();
 
+int exec_cmd(const char* path, char* const argv[]);
+
 #ifdef __cplusplus
 }
 #endif

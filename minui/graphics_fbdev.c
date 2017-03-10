@@ -26,6 +26,8 @@
 #include <sys/mman.h>
 #include <sys/types.h>
 
+#include <pixelflinger/pixelflinger.h>
+
 #include <linux/fb.h>
 #include <linux/kd.h>
 
@@ -52,6 +54,31 @@ static minui_backend my_backend = {
     .exit = fbdev_exit,
 };
 
+void rk_rotate_surface_180(GRSurface* surface)
+{
+    GGLuint width = surface->width;
+    GGLuint height = surface->height;
+    int byt = 4; // 4 byte for ARGB_8888 (2 byte for RGB_565) 
+
+    int length = width * height;
+    GGLubyte* des_data = malloc(sizeof(GGLubyte)*length*byt);
+    memcpy(des_data,surface->data,sizeof(GGLubyte)*length*byt);
+
+    memset(surface->data, 0, sizeof(GGLubyte)*length*byt);
+    int i = 0;
+    for (i=0; i<length; i++)
+    {
+        surface->data[i*byt] = des_data[(length-i-1)*byt];
+        surface->data[i*byt+1] = des_data[(length-i-1)*byt+1];
+        surface->data[i*byt+2] = des_data[(length-i-1)*byt+2];
+        surface->data[i*byt+3] = des_data[(length-i-1)*byt+3];
+    }
+
+    free(des_data);
+
+}
+
+
 minui_backend* open_fbdev() {
     return &my_backend;
 }
@@ -74,6 +101,10 @@ static void set_displayed_framebuffer(unsigned n)
     vi.bits_per_pixel = gr_framebuffer[0].pixel_bytes * 8;
     if (ioctl(fb_fd, FBIOPUT_VSCREENINFO, &vi) < 0) {
         perror("active fb swap failed");
+    }
+	
+	if (ioctl(fb_fd,RK_FBIOSET_CONFIG_DONE, NULL) < 0) {
+    	perror("set config done failed");
     }
     displayed_buffer = n;
 }
@@ -117,11 +148,25 @@ static gr_surface fbdev_init(minui_backend* backend) {
            "  vi.bits_per_pixel = %d\n"
            "  vi.red.offset   = %3d   .length = %3d\n"
            "  vi.green.offset = %3d   .length = %3d\n"
-           "  vi.blue.offset  = %3d   .length = %3d\n",
+           "  vi.blue.offset  = %3d   .length = %3d\n"
+		   "  fi.line_length = %d\n",
            vi.bits_per_pixel,
            vi.red.offset, vi.red.length,
            vi.green.offset, vi.green.length,
-           vi.blue.offset, vi.blue.length);
+           vi.blue.offset, vi.blue.length,
+		   fi.line_length);
+		   
+	//GGL_PIXEL_FORMAT_RGBX_8888
+	vi.red.offset     = 0;
+    vi.red.length     = 8;
+    vi.green.offset   = 8;
+    vi.green.length   = 8;
+    vi.blue.offset    = 16;
+    vi.blue.length    = 8;
+    vi.transp.offset  = 24;
+    vi.transp.length  = 8;
+	vi.bits_per_pixel = 32;
+	vi.nonstd = 2;
 
     bits = mmap(0, fi.smem_len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
     if (bits == MAP_FAILED) {
@@ -134,7 +179,7 @@ static gr_surface fbdev_init(minui_backend* backend) {
 
     gr_framebuffer[0].width = vi.xres;
     gr_framebuffer[0].height = vi.yres;
-    gr_framebuffer[0].row_bytes = fi.line_length;
+    gr_framebuffer[0].row_bytes = vi.xres * 4;
     gr_framebuffer[0].pixel_bytes = vi.bits_per_pixel / 8;
     gr_framebuffer[0].data = bits;
     memset(gr_framebuffer[0].data, 0, gr_framebuffer[0].height * gr_framebuffer[0].row_bytes);
@@ -169,9 +214,9 @@ static gr_surface fbdev_init(minui_backend* backend) {
     fb_fd = fd;
     set_displayed_framebuffer(0);
 
-    printf("framebuffer: %d (%d x %d)\n", fb_fd, gr_draw->width, gr_draw->height);
+    printf("framebuffer: %d (%d x %d) double_buffer %d\n", fb_fd, gr_draw->width, gr_draw->height, double_buffered);
 
-    fbdev_blank(backend, true);
+    //fbdev_blank(backend, true);
     fbdev_blank(backend, false);
 
     return gr_draw;
@@ -195,6 +240,9 @@ static gr_surface fbdev_flip(minui_backend* backend __unused) {
         // then flip the driver so we're displaying the other buffer
         // instead.
         gr_draw = gr_framebuffer + displayed_buffer;
+#ifdef BOARD_HAS_FLIPPED_SCREEN
+        rk_rotate_surface_180( &gr_framebuffer[1-displayed_buffer]);
+#endif
         set_displayed_framebuffer(1-displayed_buffer);
     } else {
         // Copy from the in-memory surface to the framebuffer.
